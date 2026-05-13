@@ -11,7 +11,7 @@ class InventoryPage:
         self.master = master
         self.app_manager = app_manager
         self.file_path = "database/nguyenlieu.csv"
-        self.fields = ["Mã", "Tên", "Loại", "Tồn", "Đơn vị", "Giá"]
+        self.fields = ["Nguyên liệu", "Loại", "Số lượng", "Giá/kg", "Ngày nhập"]
 
         if not os.path.exists("database"):
             os.makedirs("database")
@@ -22,7 +22,8 @@ class InventoryPage:
     def clean_number(self, value):
         """Hỗ trợ xử lý số an toàn cho tính toán"""
         try:
-            return int(str(value).replace(',', '').replace('.', '').strip())
+            v = str(value).replace(',', '').replace('.', '').replace(' VNĐ', '').strip()
+            return int(v) if v else 0
         except:
             return 0
 
@@ -32,18 +33,12 @@ class InventoryPage:
         header.pack(fill="x")
         header.pack_propagate(False)
 
-        tk.Label(header, text="☕ QUẢN LÝ KHO & BÁO CÁO TỔNG QUAN", font=("Arial", 20, "bold"),
+        tk.Label(header, text="☕ QUẢN LÝ KHO & BÁO CÁO", font=("Arial", 20, "bold"),
                  fg="white", bg=header_bg).pack(side="left", padx=20)
 
-        text_btn = "ĐĂNG XUẤT"
-        cmd_btn = self.app_manager.show_login_page
-        if self.app_manager.current_role == "Quản lý":
-            text_btn = "🔙 VỀ MENU"
-            cmd_btn = self.app_manager.show_manager_menu
-
-        btn_back = tk.Button(header, text=text_btn, bg="#c0392b", fg="white",
-                             font=("Arial", 10, "bold"), bd=0, padx=15, cursor="hand2",
-                             command=cmd_btn)
+        btn_back = tk.Button(header, text="🔙 VỀ MENU" if self.app_manager.current_role == "Quản lý" else "ĐĂNG XUẤT",
+                             bg="#c0392b", fg="white", font=("Arial", 10, "bold"), bd=0, padx=15, cursor="hand2",
+                             command=self.app_manager.show_manager_menu if self.app_manager.current_role == "Quản lý" else self.app_manager.show_login_page)
         btn_back.pack(side="right", padx=20, pady=15)
 
         self.notebook = ttk.Notebook(self.master)
@@ -54,12 +49,12 @@ class InventoryPage:
         self.tab3 = tk.Frame(self.notebook, bg="white")
 
         self.notebook.add(self.tab1, text=" 1. Quản lý kho ")
-        self.notebook.add(self.tab2, text=" 2. Thống kê chi phí nhập ")
-        self.notebook.add(self.tab3, text=" 3. Báo cáo hàng hóa ")
+        self.notebook.add(self.tab2, text=" 2. Thống kê chi phí ")
+        self.notebook.add(self.tab3, text=" 3. Phiếu báo cáo tổng quan ")
 
         self.setup_tab_inventory()
         self.setup_tab_stats()
-        self.setup_tab_report()
+        self.setup_tab_report_text()
 
     def setup_tab_inventory(self):
         toolbar = tk.Frame(self.tab1, bg="white", pady=10)
@@ -72,170 +67,175 @@ class InventoryPage:
         CustomButton(toolbar, text="📝 Sửa", command=self.edit_item, style_type="warning").pack(side="left", padx=5)
         CustomButton(toolbar, text="🗑️ Xóa", command=self.delete_item, style_type="danger").pack(side="left", padx=5)
 
+        # Tìm kiếm bên phải
         CustomButton(toolbar, text="🔍", command=self.refresh_data, style_type="primary").pack(side="right", padx=2)
         self.search_var = tk.StringVar()
         self.search_var.trace_add("write", lambda *args: self.refresh_data())
-        self.ent_search = tk.Entry(toolbar, font=("Arial", 11), width=55, textvariable=self.search_var)
+        self.ent_search = tk.Entry(toolbar, font=("Arial", 11), width=40, textvariable=self.search_var)
         self.ent_search.pack(side="right", padx=5)
         tk.Label(toolbar, text="Tìm kiếm:", bg="white").pack(side="right", padx=5)
 
-        self.cols = ("stt", "ma", "ten", "loai", "ton", "donvi", "gia")
-        self.tree = ttk.Treeview(self.tab1, columns=self.cols, show="headings")
-        for c, t in zip(self.cols, ["STT", "Mã", "Tên", "Loại", "Tồn", "ĐVT", "Giá Nhập"]):
+        self.tree = ttk.Treeview(self.tab1, columns=("stt", "ten", "loai", "sl", "gia", "ngay", "tong"),
+                                 show="headings")
+        titles = ["STT", "Nguyên liệu", "Loại", "Số lượng", "Giá/kg", "Ngày nhập", "Thành tiền"]
+        for c, t in zip(self.tree["columns"], titles):
             self.tree.heading(c, text=t)
             self.tree.column(c, width=100, anchor="center")
         self.tree.pack(fill="both", expand=True, padx=10, pady=10)
-        self.tree.tag_configure('low', background='#ffcccc')
 
     def setup_tab_stats(self):
-        """Bảng thống kê thành tiền đơn giản"""
-        tk.Label(self.tab2, text="📊 CHI TIẾT GIÁ TRỊ VỐN NHẬP KHO", font=("Arial", 14, "bold"), bg="white",
-                 fg="#6F4E37").pack(pady=10)
-        cols_stats = ("ten", "ton", "gia", "tong")
-        self.tree_stats = ttk.Treeview(self.tab2, columns=cols_stats, show="headings")
-        self.tree_stats.heading("ten", text="Nguyên Liệu")
-        self.tree_stats.heading("ton", text="Số lượng tồn")
-        self.tree_stats.heading("gia", text="Đơn giá nhập")
-        self.tree_stats.heading("tong", text="Tổng giá trị vốn")
-        for c in cols_stats: self.tree_stats.column(c, anchor="center")
+        tk.Label(self.tab2, text="📊 CHI PHÍ PHÁT SINH", font=("Arial", 16, "bold"), bg="white", fg="#6F4E37").pack(
+            pady=10)
+        self.tree_stats = ttk.Treeview(self.tab2, columns=("ten", "sl", "ngay", "gia", "tong"), show="headings")
+        titles = ["Nguyên liệu", "Số lượng", "Ngày nhập", "Đơn giá", "Thành tiền"]
+        for c, t in zip(self.tree_stats["columns"], titles):
+            self.tree_stats.heading(c, text=t)
+            self.tree_stats.column(c, anchor="center")
         self.tree_stats.pack(fill="both", expand=True, padx=20, pady=10)
 
-    def setup_tab_report(self):
+        bottom_frame = tk.Frame(self.tab2, bg="white")
+        bottom_frame.pack(fill="x", padx=20, pady=10)
+        tk.Button(bottom_frame, text="💰 TÍNH TỔNG THANH TOÁN", command=self.sum_all_stats, bg="#27AE60", fg="white",
+                  font=("Arial", 11, "bold"), padx=20, pady=5).pack(side="left")
+        self.lbl_total_payment = tk.Label(bottom_frame, text="KẾT QUẢ: 0 VNĐ", font=("Arial", 14, "bold"), fg="#C0392B",
+                                          bg="white")
+        self.lbl_total_payment.pack(side="right")
+
+    def setup_tab_report_text(self):
         """Khung báo cáo dạng văn bản (Real-time)"""
         frame_report = tk.Frame(self.tab3, bg="white", padx=20, pady=20)
         frame_report.pack(fill="both", expand=True)
-        tk.Label(frame_report, text="📄 PHIẾU BÁO CÁO TỔNG QUAN", font=("Arial", 15, "bold"), bg="white").pack()
         self.txt_report = tk.Text(frame_report, font=("Courier New", 12), bg="#FDFEFE", bd=2, relief="groove")
         self.txt_report.pack(fill="both", expand=True, pady=10)
 
     def refresh_data(self):
-        """Hàm đồng bộ dữ liệu cho tất cả các Tab"""
         query = self.ent_search.get().strip().lower()
         for i in self.tree.get_children(): self.tree.delete(i)
         for i in self.tree_stats.get_children(): self.tree_stats.delete(i)
 
         if not os.path.exists(self.file_path):
             with open(self.file_path, "w", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerow(self.fields + ["Ngày", "Trạng thái"])
+                csv.writer(f).writerow(self.fields)
             return
 
-        low_stock_list = []
-        total_cost = 0
+        grand_total = 0
         total_items = 0
-        categories = {}
-        idx_counter = 1
+        list_for_report = []
 
         try:
             with open(self.file_path, "r", encoding="utf-8") as f:
                 reader = csv.reader(f)
-                header = next(reader, None)
+                next(reader, None)
+                idx = 1
                 for r in reader:
-                    if not r or len(r) < 6: continue
-                    ma, ten, cat = r[0], r[1], r[2]
+                    if not r or len(r) < 5: continue
+                    ten, loai, sl_val, gia_val, ngay = r[0], r[1], r[2], r[3], r[4]
+                    sl = self.clean_number(sl_val)
+                    gia = self.clean_number(gia_val)
+                    thanh_tien = sl * gia
 
-                    if query in ma.lower() or query in ten.lower() or query in cat.lower():
-                        ton = self.clean_number(r[3])
-                        gia = self.clean_number(r[5])
-                        thanh_tien = ton * gia
-                        total_cost += thanh_tien
+                    if query in ten.lower() or query in loai.lower() or query in ngay.lower():
+                        grand_total += thanh_tien
                         total_items += 1
-                        categories[cat] = categories.get(cat, 0) + 1
+                        list_for_report.append(r)
 
-                        tag = 'low' if ton < 10 else ''
-                        if ton < 10: low_stock_list.append(ten)
 
-                        self.tree.insert("", "end", values=(idx_counter, ma, ten, cat, ton, r[4], f"{gia:,}"),
-                                         tags=(tag,))
-                        self.tree_stats.insert("", "end", values=(ten, ton, f"{gia:,}", f"{thanh_tien:,} VNĐ"))
-                        idx_counter += 1
+                        self.tree.insert("", "end", values=(idx, ten, loai, sl, f"{gia:,}", ngay, f"{thanh_tien:,}"))
 
-            self.generate_report(total_items, total_cost, low_stock_list, categories)
+                        self.tree_stats.insert("", "end", values=(ten, sl, ngay, f"{gia:,}", f"{thanh_tien:,}"))
+                        idx += 1
+
+            self.generate_custom_report(grand_total, list_for_report)
         except Exception as e:
             print(f"Lỗi: {e}")
 
-    def generate_report(self, items, cost, lows, cats):
+    def generate_custom_report(self, total_money, data_list):
+        """Hàm tạo nội dung phiếu báo cáo theo đúng yêu cầu của bro"""
         self.txt_report.delete("1.0", "end")
+        curr_month = datetime.now().strftime('%m/%Y')
+
         report_content = f"""
 ==================================================
-        BÁO CÁO KHO HÀNG ĐÃ ĐỒNG BỘ
-        Ngày lập: {datetime.now().strftime('%d/%m/%Y %H:%M:%S')}
+              BÁO CÁO THÁNG {curr_month}
 ==================================================
 
-1. THỐNG KÊ TỔNG QUAN:
-   - Tổng số mặt hàng: {items} loại.
-   - Tổng giá trị vốn nhập kho: {cost:,} VNĐ.
+PHẦN 1: THỐNG KÊ TÀI CHÍNH
+   - Tổng số mặt hàng: {len(data_list)} loại
+   - Tổng chi phí thanh toán: {total_money:,} VNĐ
 
-2. CHI TIẾT NHÓM HÀNG:
+PHẦN 2: CHI TIẾT HÀNG HÓA NHẬP KHO
 """
-        for c, count in cats.items():
-            report_content += f"   + {c}: {count} mặt hàng\n"
+        # Duyệt qua danh sách để ghi rõ Loại ... Tên hàng
+        for item in data_list:
+            ten = item[0]
+            loai = item[1]
+            report_content += f"   + Loại {loai.lower()} ... {ten}\n"
 
         report_content += f"""
-3. TÌNH TRẠNG CẢNH BÁO:
-   - Số lượng hàng cần nhập thêm: {len(lows)} mặt hàng.
-   - Danh sách: {', '.join(lows) if lows else "An toàn"}
-
-4. KẾT LUẬN:
-   - Trạng thái hệ thống: {'⚠️ CẦN NHẬP HÀNG' if lows else '✅ ỔN ĐỊNH'}
+--------------------------------------------------
+Hệ thống tự động đồng bộ dữ liệu lúc: {datetime.now().strftime('%H:%M:%S')}
 ==================================================
 """
         self.txt_report.insert("1.0", report_content)
+
+    def sum_all_stats(self):
+        total = 0
+        for item in self.tree_stats.get_children():
+            total += self.clean_number(self.tree_stats.item(item)['values'][4])
+        self.lbl_total_payment.config(text=f"KẾT QUẢ: {total:,} VNĐ")
 
     def clear_search_and_refresh(self):
         self.ent_search.delete(0, tk.END)
         self.refresh_data()
 
     def edit_item(self):
-        selected = self.tree.selection()
-        if not selected: return messagebox.showwarning("Chú ý", "Vui lòng chọn hàng!")
-        data = self.tree.item(selected[0])['values'][1:]
-        self.open_form("CẬP NHẬT NGUYÊN LIỆU", data)
+        sel = self.tree.selection()
+        if sel: self.open_form("CẬP NHẬT", self.tree.item(sel[0])['values'][1:6])
 
     def delete_item(self):
-        selected = self.tree.selection()
-        if not selected or not messagebox.askyesno("Xác nhận", "Xóa mặt hàng này?"): return
-        ma_xoa = self.tree.item(selected[0])['values'][1]
-        rows = []
-        with open(self.file_path, "r", encoding="utf-8") as f:
-            reader = csv.reader(f)
-            header = next(reader)
-            rows = [header] + [r for r in reader if r and r[0] != str(ma_xoa)]
-        with open(self.file_path, "w", newline="", encoding="utf-8") as f:
-            csv.writer(f).writerows(rows)
-        self.refresh_data()
+        sel = self.tree.selection()
+        if sel and messagebox.askyesno("Xác nhận", "Xóa?"):
+            ten = self.tree.item(sel[0])['values'][1]
+            rows = []
+            with open(self.file_path, "r", encoding="utf-8") as f:
+                r = csv.reader(f)
+                h = next(r)
+                rows = [h] + [line for line in r if line and line[0] != ten]
+            with open(self.file_path, "w", newline="", encoding="utf-8") as f:
+                csv.writer(f).writerows(rows)
+            self.refresh_data()
 
     def open_form(self, title, edit_data=None):
         win = tk.Toplevel(self.master)
         win.title(title)
-        win.geometry("400x600")
+        win.geometry("400x550")
         win.grab_set()
         tk.Label(win, text=title, font=("Arial", 14, "bold")).pack(pady=20)
         ents = {}
-        for i, field_name in enumerate(self.fields):
-            tk.Label(win, text=f"{field_name}:").pack()
+        for i, f in enumerate(self.fields):
+            tk.Label(win, text=f"{f}:").pack()
             e = tk.Entry(win, width=30)
             e.pack(pady=5)
+            if f == "Ngày nhập" and not edit_data: e.insert(0, datetime.now().strftime("%d/%m/%Y"))
             if edit_data:
                 e.insert(0, edit_data[i])
                 if i == 0: e.config(state="readonly")
-            ents[field_name] = e
+            ents[f] = e
 
         def save():
-            new_row = [ents[f].get() for f in self.fields]
-            if not new_row[0] or not new_row[1]: return messagebox.showerror("Lỗi", "Không để trống Mã/Tên")
-            all_data = []
+            new_r = [ents[f].get() for f in self.fields]
+            if not new_r[0] or not new_r[1]: return messagebox.showerror("Lỗi", "Thiếu thông tin!")
+            all_d = []
             with open(self.file_path, "r", encoding="utf-8") as f:
-                reader = csv.reader(f)
-                header = next(reader)
-                all_data.append(header)
-                for r in reader:
-                    if r and r[0] == new_row[0]: continue
-                    all_data.append(r)
-            all_data.append(new_row + [datetime.now().strftime("%d/%m/%Y"), "Sẵn sàng"])
+                r = csv.reader(f)
+                h = next(r, None)
+                if h: all_d.append(h)
+                for line in r:
+                    if line and line[0] != new_r[0]: all_d.append(line)
+            all_d.append(new_r)
             with open(self.file_path, "w", newline="", encoding="utf-8") as f:
-                csv.writer(f).writerows(all_data)
+                csv.writer(f).writerows(all_d)
             self.refresh_data()
             win.destroy()
 
-        tk.Button(win, text="XÁC NHẬN", bg="#8B4513", fg="white", font=("Arial", 10, "bold"),
-                  command=save, width=15, height=2).pack(pady=20)
+        tk.Button(win, text="XÁC NHẬN", bg="#8B4513", fg="white", command=save, width=15).pack(pady=20)

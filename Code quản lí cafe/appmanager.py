@@ -18,7 +18,7 @@ class AppManager:
         if not os.path.exists("database"):
             os.makedirs("database")
 
-        self.show_login_page()
+        self.show_inventory_page()
 
     def show_manager_menu(self):
         self.clear_screen()
